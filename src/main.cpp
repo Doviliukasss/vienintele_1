@@ -23,7 +23,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define AIO_SERVER      "io.adafruit.com"
 #define AIO_SERVERPORT  1883
 #define AIO_USERNAME    "doviliukas_1"   // your Adafruit username
-#define AIO_KEY         "aio_xvop37OBByhla94ZLLt2uFYJgcqL"  // your Adafruit IO key
+#define AIO_KEY         ""  // your Adafruit IO key
 
 // ----------- DHT11 Setup ------------
 #define DHTPIN 27
