@@ -4,9 +4,21 @@
 #include "Adafruit_MQTT_Client.h"
 #include <DHT.h>
 
+// ===== OLED =====
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define OLED_ADDR 0x3C
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
 // ----------- WiFi and Adafruit IO Setup ------------
-#define WLAN_SSID       "HUAWEI P20 lite"        // your WiFi SSID
-#define WLAN_PASS       "Doviliukasss1"      // your WiFi password
+#define WLAN_SSID       "Pasidaryk Pats"
+#define WLAN_PASS       "pasidaryk-pats"
 
 #define AIO_SERVER      "io.adafruit.com"
 #define AIO_SERVERPORT  1883
@@ -22,18 +34,33 @@ DHT dht(DHTPIN, DHTTYPE);
 WiFiClient client;
 Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
 
-// Feeds (create them in Adafruit IO first!)
-Adafruit_MQTT_Publish temperatureFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/termometras-v1");
-Adafruit_MQTT_Publish humidityFeed    = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/dregme-v1");
+Adafruit_MQTT_Publish temperatureFeed =
+  Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/termometras-v1");
+
+Adafruit_MQTT_Publish humidityFeed =
+  Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/dregme-v1");
 
 void MQTT_connect();
 
 void setup() {
   Serial.begin(9600);
-  delay(10);
+
+  // ===== OLED init =====
+  Wire.begin(21, 22);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println("OLED nerastas");
+    while (true);
+  }
+
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("ESP32 paleistas");
+  display.display();
+
+  // ===== WiFi =====
   Serial.println("Connecting to WiFi...");
-  Serial.print (WLAN_SSID);
-  Serial.print (WLAN_PASS);
   WiFi.begin(WLAN_SSID, WLAN_PASS);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -41,8 +68,10 @@ void setup() {
   }
 
   Serial.println("\nWiFi connected!");
-  Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
+
+  display.println("WiFi OK");
+  display.display();
 
   dht.begin();
 }
@@ -54,51 +83,58 @@ void loop() {
   float tempC = dht.readTemperature();
 
   if (isnan(humi) || isnan(tempC)) {
-    Serial.println("Failed to read from DHT sensor!");
+    Serial.println("DHT klaida");
+
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("DHT klaida!");
+    display.display();
     delay(2000);
     return;
   }
 
-  Serial.print("Humidity: ");
-  Serial.print(humi);
-  Serial.print("%  Temperature: ");
+  // ===== OLED OUTPUT =====
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("Temperatura:");
+  display.setTextSize(2);
+  display.setCursor(0, 12);
+  display.print(tempC, 1);
+  display.print(" C");
+
+  display.setTextSize(1);
+  display.setCursor(0, 40);
+  display.print("Dregme: ");
+  display.print(humi, 1);
+  display.print(" %");
+
+  display.display();
+
+  // ===== Serial =====
+  Serial.print("Temp: ");
   Serial.print(tempC);
-  Serial.println("°C");
+  Serial.print(" C | Humidity: ");
+  Serial.print(humi);
+  Serial.println(" %");
 
-  // Publish to Adafruit IO
-  if (!temperatureFeed.publish(tempC)) {
-    Serial.println("Failed to publish temperature");
-  } else {
-    Serial.println("Temperature sent!");
-  }
+  // ===== MQTT Publish =====
+  temperatureFeed.publish(tempC);
+  humidityFeed.publish(humi);
 
-  if (!humidityFeed.publish(humi)) {
-    Serial.println("Failed to publish humidity");
-  } else {
-    Serial.println("Humidity sent!");
-  }
-
-  delay(5000); // send data every 5 seconds
+  delay(5000);
 }
 
 void MQTT_connect() {
   int8_t ret;
 
-  if (mqtt.connected()) {
-    return;
-  }
+  if (mqtt.connected()) return;
 
-  Serial.print("Connecting to MQTT... ");
-  uint8_t retries = 3;
-  while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
+  Serial.print("Connecting to MQTT...");
+  while ((ret = mqtt.connect()) != 0) {
     Serial.println(mqtt.connectErrorString(ret));
-    Serial.println("Retrying MQTT connection in 5 seconds...");
     mqtt.disconnect();
     delay(5000);
-    retries--;
-    if (retries == 0) {
-      while (1); // hang
-    }
   }
-  Serial.println("MQTT Connected!");
+  Serial.println("MQTT connected!");
 }
