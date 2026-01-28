@@ -16,21 +16,21 @@
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// ----------- WiFi and Adafruit IO Setup ------------
+// ===== WiFi / MQTT =====
 #define WLAN_SSID       "Pasidaryk Pats"
 #define WLAN_PASS       "pasidaryk-pats"
 
 #define AIO_SERVER      "io.adafruit.com"
 #define AIO_SERVERPORT  1883
-#define AIO_USERNAME    "doviliukas_1"   // your Adafruit username
-#define AIO_KEY         ""  // your Adafruit IO key
+#define AIO_USERNAME    "doviliukas_1"
+#define AIO_KEY         ""   // <- TAVO ADAFRUIT IO KEY
 
-// ----------- DHT11 Setup ------------
+// ===== DHT11 =====
 #define DHTPIN 27
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-// ----------- MQTT Setup ------------
+// ===== MQTT =====
 WiFiClient client;
 Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
 
@@ -40,15 +40,33 @@ Adafruit_MQTT_Publish temperatureFeed =
 Adafruit_MQTT_Publish humidityFeed =
   Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/dregme-v1");
 
-void MQTT_connect();
+// ===== TIMING =====
+unsigned long lastReadTime = 0;
+const unsigned long readInterval = 5000;
 
+// ===== DATA =====
+float temperature = 0;
+float humidity = 0;
+
+bool wifiOK = false;
+
+// ===== MQTT CONNECT =====
+void MQTT_connect() {
+  if (!mqtt.connected()) {
+    int8_t ret = mqtt.connect();
+    if (ret != 0) {
+      mqtt.disconnect();
+    }
+  }
+}
+
+// ================= SETUP =================
 void setup() {
   Serial.begin(9600);
 
-  // ===== OLED init =====
   Wire.begin(21, 22);
+
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-    Serial.println("OLED nerastas");
     while (true);
   }
 
@@ -59,82 +77,71 @@ void setup() {
   display.println("ESP32 paleistas");
   display.display();
 
-  // ===== WiFi =====
-  Serial.println("Connecting to WiFi...");
-  WiFi.begin(WLAN_SSID, WLAN_PASS);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("\nWiFi connected!");
-  Serial.println(WiFi.localIP());
-
-  display.println("WiFi OK");
-  display.display();
-
   dht.begin();
+
+  // ===== WiFi (neblokuojantis) =====
+  WiFi.begin(WLAN_SSID, WLAN_PASS);
 }
 
+// ================= LOOP =================
 void loop() {
-  MQTT_connect();
 
-  float humi = dht.readHumidity();
-  float tempC = dht.readTemperature();
+  // ===== Tikrinam WiFi =====
+  wifiOK = (WiFi.status() == WL_CONNECTED);
 
-  if (isnan(humi) || isnan(tempC)) {
-    Serial.println("DHT klaida");
+  // ===== Skaitymas kas 5 sek =====
+  if (millis() - lastReadTime >= readInterval) {
+    lastReadTime = millis();
 
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("DHT klaida!");
-    display.display();
-    delay(2000);
-    return;
+    float t = dht.readTemperature();
+    float h = dht.readHumidity();
+
+    if (!isnan(t) && !isnan(h)) {
+      temperature = t;
+      humidity = h;
+
+      Serial.print("Temp: ");
+      Serial.print(temperature);
+      Serial.print(" C | Hum: ");
+      Serial.println(humidity);
+    }
   }
 
-  // ===== OLED OUTPUT =====
+  // ===== MQTT tik jei yra internetas =====
+  if (wifiOK) {
+    MQTT_connect();
+
+    if (mqtt.connected()) {
+      temperatureFeed.publish(temperature);
+      humidityFeed.publish(humidity);
+    }
+  }
+
+  // ===== OLED =====
   display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+
   display.setTextSize(1);
   display.setCursor(0, 0);
   display.println("Temperatura:");
+
   display.setTextSize(2);
   display.setCursor(0, 12);
-  display.print(tempC, 1);
+  display.print(temperature, 1);
   display.print(" C");
 
   display.setTextSize(1);
   display.setCursor(0, 40);
   display.print("Dregme: ");
-  display.print(humi, 1);
+  display.print(humidity, 1);
   display.print(" %");
 
-  display.display();
-
-  // ===== Serial =====
-  Serial.print("Temp: ");
-  Serial.print(tempC);
-  Serial.print(" C | Humidity: ");
-  Serial.print(humi);
-  Serial.println(" %");
-
-  // ===== MQTT Publish =====
-  temperatureFeed.publish(tempC);
-  humidityFeed.publish(humi);
-
-  delay(5000);
-}
-
-void MQTT_connect() {
-  int8_t ret;
-
-  if (mqtt.connected()) return;
-
-  Serial.print("Connecting to MQTT...");
-  while ((ret = mqtt.connect()) != 0) {
-    Serial.println(mqtt.connectErrorString(ret));
-    mqtt.disconnect();
-    delay(5000);
+  display.setCursor(90, 0);
+  if (wifiOK) {
+    display.print("WiFi");
+  } else {
+    display.print("OFF");
   }
-  Serial.println("MQTT connected!");
+
+  display.display();
 }
